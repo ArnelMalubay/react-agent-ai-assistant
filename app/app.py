@@ -12,10 +12,11 @@ from typing import Annotated, Literal, Sequence, TypedDict
 from pathlib import Path
 from dotenv import load_dotenv
 
+import re, unicodedata
 from langchain_core.tools import tool
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_groq import ChatGroq
-from langchain_tavily import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_community.document_loaders import PyMuPDFLoader
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
@@ -29,48 +30,43 @@ load_dotenv()
 
 # Initialize the LLM
 llm = ChatGroq(
-    model="llama3-8b-8192",
+    model="llama-3.1-8b-instant",
     temperature=0,
     groq_api_key=os.getenv("GROQ_API_KEY")
 )
 
 # Initialize Tavily search
-tavily_search = TavilySearchResults(
-    max_results=5,
-    tavily_api_key=os.getenv("TAVILY_API_KEY")
+tavily_search = TavilySearch(
+    max_results = 1, 
+    topic = 'general', 
+    search_depth = 'basic',
+    include_answer = 'advanced'
 )
 
 # Initialize memory for conversation
 memory = MemorySaver()
 
 
+class AgentState(TypedDict):
+    """State for the job application agent."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    resumes: dict  # Dictionary to store resume data by filename/id
+    job_summaries: dict  # Dictionary to store job posting data by query/url
+
+
 def add_resume_to_state(state: AgentState, filename: str, content: str) -> AgentState:
     """Add resume content to the state."""
     if "resumes" not in state:
         state["resumes"] = {}
-    
-    # Use filename as key, store content and metadata
-    state["resumes"][filename] = {
-        "content": content,
-        "filename": filename,
-        "added_at": "now"  # In a real app, you'd use datetime
-    }
+    state["resumes"][filename] = content
     return state
-
 
 def add_job_to_state(state: AgentState, query: str, results: dict) -> AgentState:
     """Add job posting data to the state."""
     if "job_summaries" not in state:
         state["job_summaries"] = {}
-    
-    # Use query as key, store results and metadata
-    state["job_summaries"][query] = {
-        "query": query,
-        "results": results,
-        "added_at": "now"  # In a real app, you'd use datetime
-    }
+    state["job_summaries"][query] = results
     return state
-
 
 def get_resume_options(state: AgentState) -> str:
     """Get formatted list of available resumes."""
@@ -96,12 +92,76 @@ def get_job_options(state: AgentState) -> str:
     return "\n".join(options)
 
 
-class AgentState(TypedDict):
-    """State for the job application agent."""
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    resumes: dict  # Dictionary to store resume data by filename/id
-    job_summaries: dict  # Dictionary to store job posting data by query/url
-
+def clean_text(text: str) -> str:
+    """
+    Clean text for better performance while preserving markdown structure.
+    
+    Args:
+        text (str): Raw text to clean
+        
+    Returns:
+        str: Cleaned text optimized for embedding and chunking
+    """
+    if not text or not text.strip():
+        return ""
+    
+    # Normalize unicode characters
+    text = unicodedata.normalize('NFKD', text)
+    
+    # Fix common PDF extraction artifacts
+    # Fix hyphenated words broken across lines
+    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)
+    
+    # Remove excessive whitespace while preserving structure
+    text = re.sub(r' +', ' ', text)  # Multiple spaces to single space
+    text = re.sub(r'\t+', ' ', text)  # Tabs to single space
+    text = re.sub(r'\n +', '\n', text)  # Remove spaces after newlines
+    text = re.sub(r' +\n', '\n', text)  # Remove spaces before newlines
+    
+    # Normalize line breaks (preserve paragraph structure)
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Max 2 consecutive newlines
+    text = re.sub(r'\r\n', '\n', text)  # Windows line endings to Unix
+    text = re.sub(r'\r', '\n', text)  # Old Mac line endings to Unix
+    
+    # Clean up common PDF artifacts
+    # Remove standalone page numbers (numbers on their own line)
+    text = re.sub(r'\n\s*\d+\s*\n', '\n', text)
+    
+    # Remove standalone roman numerals (common in headers/footers)
+    text = re.sub(r'\n\s*[ivxlcdm]+\s*\n', '\n', text, flags = re.IGNORECASE)
+    
+    # Clean up markdown table formatting (preserve structure but clean spacing)
+    # Fix spacing around table delimiters
+    text = re.sub(r' +\| +', ' | ', text)  # Normalize spacing around pipes
+    text = re.sub(r'^\| +', '| ', text, flags = re.MULTILINE)  # Start of line pipes
+    text = re.sub(r' +\|$', ' |', text, flags = re.MULTILINE)  # End of line pipes
+    
+    # Preserve list formatting but clean spacing
+    text = re.sub(r'\n +([•\-\*\+])', r'\n\1', text)  # Bullet lists
+    text = re.sub(r'\n +(\d+\.)', r'\n\1', text)  # Numbered lists
+    
+    # Clean up header formatting (preserve markdown headers)
+    text = re.sub(r'\n +(#+)', r'\n\1', text)  # Remove spaces before headers
+    text = re.sub(r'(#+) +([^\n]+)', r'\1 \2', text)  # Normalize header spacing
+    
+    # Remove excessive punctuation (but preserve meaningful punctuation)
+    text = re.sub(r'\.{3,}', '...', text)  # Multiple dots to ellipsis
+    text = re.sub(r'-{3,}', '---', text)  # Multiple dashes to em dash
+    
+    # Clean up quote marks
+    text = re.sub(r'[\u201C\u201D\u201E]', '"', text)  # Normalize quotes
+    text = re.sub(r'[\u2018\u2019]', "'", text)  # Normalize apostrophes
+    
+    # Remove zero-width characters and other invisible characters
+    text = re.sub(r'[\u200B\u200C\u200D\uFEFF]', '', text)
+    
+    # Final cleanup
+    text = text.strip()  # Remove leading/trailing whitespace
+    
+    # Ensure text doesn't start or end with newlines after cleaning
+    text = text.strip('\n')
+    
+    return text
 
 @tool
 def resume_reader(filepath: str) -> str:
@@ -134,7 +194,7 @@ def resume_reader(filepath: str) -> str:
         # Extract filename for storage
         filename = os.path.basename(filepath)
         
-        return f"Successfully read resume '{filename}'. Content preview:\n{text_content[:500]}..."
+        return f"Successfully read resume '{filename}'. Content preview:\n{clean_text(text_content)}"
     
     except Exception as e:
         return f"Error reading resume: {str(e)}"
@@ -143,7 +203,7 @@ def resume_reader(filepath: str) -> str:
 @tool
 def job_search(query_or_url: str) -> dict:
     """
-    Search for job postings using Tavily search or extract content from a URL.
+    Search for job postings using Tavily search.
     
     Args:
         query_or_url: Either a search query or a URL to a job posting
@@ -152,24 +212,18 @@ def job_search(query_or_url: str) -> dict:
         dict: Search results or extracted content
     """
     try:
-        # Check if it's a URL
-        if query_or_url.startswith(('http://', 'https://')):
-            # For URLs, we'll use Tavily to search for the content
-            results = tavily_search.invoke(f"site:{query_or_url} job posting requirements responsibilities")
-        else:
-            # For queries, search normally
-            results = tavily_search.invoke(query_or_url)
+        results = tavily_search.invoke(query_or_url)
         
         return {
             "query": query_or_url,
-            "results": results,
+            "answer": results['answer'],
             "status": "success"
         }
     
     except Exception as e:
         return {
             "query": query_or_url,
-            "results": [],
+            "answer": '',
             "status": "error",
             "error": str(e)
         }
@@ -238,9 +292,6 @@ def document_creator(content: str, filename: str = "cover_letter.docx") -> str:
         
         # Create a new Document
         doc = Document()
-        
-        # Add title
-        title = doc.add_heading('Cover Letter', 0)
         
         # Add content
         doc.add_paragraph(content)
@@ -515,18 +566,32 @@ def run_job_assistant():
             print("Please try again or rephrase your question.")
 
 
-if __name__ == "__main__":
-    # Check for required environment variables
-    if not os.getenv("GROQ_API_KEY"):
-        print("❌ Error: GROQ_API_KEY environment variable is required.")
-        print("Please set your Groq API key in your .env file:")
-        print("GROQ_API_KEY=your-groq-api-key-here")
-        exit(1)
+# if __name__ == "__main__":
+#     # Check for required environment variables
+#     if not os.getenv("GROQ_API_KEY"):
+#         print("❌ Error: GROQ_API_KEY environment variable is required.")
+#         print("Please set your Groq API key in your .env file:")
+#         print("GROQ_API_KEY=your-groq-api-key-here")
+#         exit(1)
     
-    if not os.getenv("TAVILY_API_KEY"):
-        print("❌ Error: TAVILY_API_KEY environment variable is required.")
-        print("Please set your Tavily API key in your .env file:")
-        print("TAVILY_API_KEY=your-tavily-api-key-here")
-        exit(1)
+#     if not os.getenv("TAVILY_API_KEY"):
+#         print("❌ Error: TAVILY_API_KEY environment variable is required.")
+#         print("Please set your Tavily API key in your .env file:")
+#         print("TAVILY_API_KEY=your-tavily-api-key-here")
+#         exit(1)
     
-    run_job_assistant()
+#     run_job_assistant()
+
+# filepath = 'app/Arnel Malubay Resume.pdf'
+# print(resume_reader.invoke(filepath))
+
+# query_or_url = 'https://thinkingmachines.freshteam.com/jobs/hlJrAwsfhoF2/ph-business-intelligence-analyst'
+# print(job_search.invoke(query_or_url))
+
+# content = '''
+# Sample Content
+# Sample Content
+# '''
+# print(document_creator.invoke(content))
+
+# TO DO: Double check tools; maybe remove state management??
