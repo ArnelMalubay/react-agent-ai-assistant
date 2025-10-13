@@ -2,9 +2,9 @@
 Job Application Assistant using Gradio and LangGraph
 
 This application provides a web-based chatbot interface for job applications with:
-1. Resume and job posting upload/download capabilities
-2. Side panel showing available documents
-3. Flexible document reading (PDFs for resumes, web search for job postings)
+1. Document upload capabilities
+2. Side panel showing available resumes and job postings
+3. Simple chat interface
 """
 
 import os
@@ -26,168 +26,131 @@ load_dotenv()
 # Global state to track conversation
 conversation_state = {"messages": [], "resumes": {}, "job_summaries": {}}
 
+
 def process_message(message, history):
     """Process user message through the agent."""
     try:
-        # Add user message to history
-        history.append([message, None])
-        
-        # Run the agent
+        # Run the agent with current state
         config = {"configurable": {"thread_id": "gradio_session"}}
+        
+        # Create a context-aware message that includes available documents
+        available_docs = ""
+        if conversation_state.get("resumes"):
+            available_docs += f"\n\nAvailable resumes: {', '.join(conversation_state['resumes'].keys())}"
+        if conversation_state.get("job_summaries"):
+            available_docs += f"\n\nAvailable job postings: {', '.join(conversation_state['job_summaries'].keys())}"
+        
+        # Add context to the message if there are documents
+        context_message = message
+        if available_docs:
+            context_message = f"{message}{available_docs}"
+        
+        # Get all previous messages from history
+        all_messages = [HumanMessage(content=context_message)]
         
         response = agent_app.invoke(
             {
-                "messages": [HumanMessage(content=message)],
-                "resumes": conversation_state["resumes"],
-                "job_summaries": conversation_state["job_summaries"]
+                "messages": all_messages,
+                "resumes": conversation_state.get("resumes", {}),
+                "job_summaries": conversation_state.get("job_summaries", {})
             },
             config=config
         )
         
-        # Update conversation state
+        # Update conversation state from response
         if "resumes" in response:
-            conversation_state["resumes"].update(response["resumes"])
+            conversation_state["resumes"] = response["resumes"]
         if "job_summaries" in response:
-            conversation_state["job_summaries"].update(response["job_summaries"])
+            conversation_state["job_summaries"] = response["job_summaries"]
         
         # Get the last AI message
         last_message = response["messages"][-1]
         
         if isinstance(last_message, AIMessage):
             ai_response = last_message.content
-            history[-1][1] = ai_response
-            
-            # Update side panel
-            return history, get_available_documents()
+            return ai_response
         
-        return history, get_available_documents()
+        return "I'm sorry, I couldn't process that request."
         
     except Exception as e:
-        error_msg = f"Error: {str(e)}"
-        history[-1][1] = error_msg
-        return history, get_available_documents()
+        return f"Error: {str(e)}"
 
-def upload_resume(file):
-    """Handle resume upload."""
+
+def upload_document(file):
+    """Handle document upload."""
     if file is None:
-        return "No file uploaded"
+        return "No file uploaded", get_resume_list(), get_job_list()
     
     try:
-        # Save uploaded file temporarily
-        temp_path = file.name
-        filename = os.path.basename(temp_path)
+        # Get filename first
+        filename = os.path.basename(file.name)
         
-        # Read the document
-        result = pdf_reader.invoke({"filepath": temp_path})
+        # Read the document using pdf_reader
+        from langchain_community.document_loaders import PyMuPDFLoader
+        loader = PyMuPDFLoader(file.name)
+        documents = loader.load()
         
-        # Store in conversation state
+        if not documents:
+            return f"❌ Could not extract text from '{filename}'", get_resume_list(), get_job_list()
+        
+        # Combine all pages into a single text
+        text_content = "\n\n".join([doc.page_content for doc in documents])
+        
+        # Store in conversation state with the actual content
         conversation_state["resumes"][filename] = {
-            "content": result,
+            "content": text_content,
             "filename": filename,
-            "filepath": temp_path
+            "filepath": file.name
         }
         
-        return f"✅ Document '{filename}' uploaded successfully!"
+        return f"✅ Document '{filename}' uploaded successfully!", get_resume_list(), get_job_list()
         
     except Exception as e:
-        return f"❌ Error uploading document: {str(e)}"
+        return f"❌ Error uploading document: {str(e)}", get_resume_list(), get_job_list()
 
-def upload_job_posting(file):
-    """Handle job posting upload (PDF)."""
-    if file is None:
-        return "No file uploaded"
+
+def get_resume_list():
+    """Get formatted list of available resumes."""
+    if not conversation_state["resumes"]:
+        return "No resumes uploaded yet"
     
-    try:
-        # Save uploaded file temporarily
-        temp_path = file.name
-        filename = os.path.basename(temp_path)
-        
-        # For PDF documents, we'll use pdf_reader to extract text
-        # then treat it as content
-        result = pdf_reader.invoke({"filepath": temp_path})
-        
-        # Store in conversation state as job posting
-        conversation_state["job_summaries"][filename] = {
-            "query": filename,
-            "content": result,
-            "added_at": "now"
-        }
-        
-        return f"✅ Content '{filename}' uploaded successfully!"
-        
-    except Exception as e:
-        return f"❌ Error uploading content: {str(e)}"
-
-def search_job_online(query):
-    """Search for job postings online."""
-    if not query.strip():
-        return "Please enter a search query"
-    
-    try:
-        result = web_search.invoke({"query_or_url": query})
-        
-        # Store in conversation state
-        conversation_state["job_summaries"][query] = {
-            "query": query,
-            "content": result,
-            "added_at": "now"
-        }
-        
-        return f"✅ Found content for: {query}"
-        
-    except Exception as e:
-        return f"❌ Error searching for content: {str(e)}"
-
-def get_available_documents():
-    """Get list of available resumes and job postings."""
     resume_list = []
+    for filename in conversation_state["resumes"].keys():
+        resume_list.append(f"• {filename}")
+    
+    return "\n".join(resume_list)
+
+
+def get_job_list():
+    """Get formatted list of available job postings."""
+    if not conversation_state["job_summaries"]:
+        return "No job postings added yet"
+    
     job_list = []
+    for query in conversation_state["job_summaries"].keys():
+        job_list.append(f"• {query}")
     
-    for filename, data in conversation_state["resumes"].items():
-        resume_list.append(f"📄 {filename}")
-    
-    for query, data in conversation_state["job_summaries"].items():
-        job_list.append(f"💼 {query}")
-    
-    resume_text = "\n".join(resume_list) if resume_list else "No documents available"
-    job_text = "\n".join(job_list) if job_list else "No searched content available"
-    
-    return resume_text, job_text
+    return "\n".join(job_list)
 
-def download_cover_letter(resume_filename, job_query, create_doc=True):
-    """Create and download a cover letter."""
-    if not resume_filename or not job_query:
-        return "Please select both resume and job posting"
-    
-    try:
-        result = create_cover_letter.invoke({
-            "resume_filename": resume_filename,
-            "job_query": job_query,
-            "create_document": create_doc
-        })
-        
-        return result
-        
-    except Exception as e:
-        return f"❌ Error creating cover letter: {str(e)}"
 
-def clear_conversation():
-    """Clear the conversation and uploaded documents."""
+def clear_all():
+    """Clear all data."""
     global conversation_state
     conversation_state = {"messages": [], "resumes": {}, "job_summaries": {}}
-    return [], "No documents available", "No searched content available"
+    return None, "No resumes uploaded yet", "No job postings added yet"
+
 
 # Create Gradio interface
 with gr.Blocks(title="Job Application Assistant", theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🤖 Job Application Assistant")
-    gr.Markdown("Upload documents and search for content, then chat with the AI to create cover letters!")
+    gr.Markdown("Upload documents and chat with the AI to create cover letters!")
     
     with gr.Row():
-        with gr.Column(scale=3):
-            # Main chat interface
+        # Left Column - Chatbot and Upload
+        with gr.Column(scale=2):
             chatbot = gr.Chatbot(
                 label="Chat with the Assistant",
-                height=400,
+                height=500,
                 show_copy_button=True,
                 type='messages'
             )
@@ -196,176 +159,93 @@ with gr.Blocks(title="Job Application Assistant", theme=gr.themes.Soft()) as dem
                 msg = gr.Textbox(
                     placeholder="Ask me anything about job applications...",
                     label="Your Message",
-                    scale=4
+                    scale=4,
+                    lines=1
                 )
                 send_btn = gr.Button("Send", variant="primary", scale=1)
             
-            # Upload sections
             with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### 📄 Upload Document")
-                    resume_upload = gr.File(
-                        label="Upload PDF Document",
-                        file_types=[".pdf"],
-                        file_count="single"
-                    )
-                    resume_status = gr.Textbox(label="Status", interactive=False)
-                
-                with gr.Column():
-                    gr.Markdown("### 💼 Upload Content")
-                    job_upload = gr.File(
-                        label="Upload PDF Content",
-                        file_types=[".pdf"],
-                        file_count="single"
-                    )
-                    job_status = gr.Textbox(label="Status", interactive=False)
-            
-            # Online content search
-            gr.Markdown("### 🔍 Search Content Online")
-            with gr.Row():
-                job_query = gr.Textbox(
-                    placeholder="Enter search query, company, or URL...",
-                    label="Search Query",
-                    scale=3
+                file_upload = gr.File(
+                    label="📄 Upload Document (PDF)",
+                    file_types=[".pdf"],
+                    file_count="single"
                 )
-                search_btn = gr.Button("Search", variant="secondary", scale=1)
-            search_status = gr.Textbox(label="Search Status", interactive=False)
+                upload_status = gr.Textbox(
+                    label="Upload Status",
+                    interactive=False,
+                    lines=1
+                )
         
+        # Right Column - Document Lists
         with gr.Column(scale=1):
-            # Side panel for available documents
             gr.Markdown("### 📋 Available Documents")
             
-            gr.Markdown("**Documents:**")
             resumes_display = gr.Textbox(
-                label="",
-                lines=8,
+                label="Resumes",
+                lines=10,
                 interactive=False,
-                value="No documents available"
+                value="No resumes uploaded yet"
             )
             
-            gr.Markdown("**Searched Content:**")
             jobs_display = gr.Textbox(
-                label="",
-                lines=8,
+                label="Job Postings",
+                lines=10,
                 interactive=False,
-                value="No searched content available"
+                value="No job postings added yet"
             )
             
-            # Cover letter creation
-            gr.Markdown("### ✍️ Create Cover Letter")
-            with gr.Column():
-                resume_select = gr.Dropdown(
-                    choices=[],
-                    label="Select Document",
-                    interactive=True
-                )
-                job_select = gr.Dropdown(
-                    choices=[],
-                    label="Select Content",
-                    interactive=True
-                )
-                create_doc_checkbox = gr.Checkbox(
-                    label="Create Word Document",
-                    value=True
-                )
-                cover_letter_btn = gr.Button("Create Cover Letter", variant="primary")
-                cover_letter_result = gr.Textbox(
-                    label="Result",
-                    lines=5,
-                    interactive=False
-                )
-            
-            # Clear button
             clear_btn = gr.Button("🗑️ Clear All", variant="stop")
     
     # Event handlers
-    def update_dropdowns():
-        """Update dropdown choices based on available documents."""
-        resume_choices = list(conversation_state["resumes"].keys())
-        job_choices = list(conversation_state["job_summaries"].keys())
-        return gr.Dropdown(choices=resume_choices), gr.Dropdown(choices=job_choices)
-    
-    # Chat functionality
     def handle_send(message, history):
         """Handle sending messages."""
         if message.strip():
-            return process_message(message, history)
-        return history, get_available_documents()
+            # Add user message to history
+            history.append({"role": "user", "content": message})
+            
+            # Get AI response
+            ai_response = process_message(message, history)
+            
+            # Add AI response to history
+            history.append({"role": "assistant", "content": ai_response})
+            
+            return history, "", get_resume_list(), get_job_list()
+        
+        return history, message, get_resume_list(), get_job_list()
     
-    # File upload handlers
-    def handle_resume_upload(file):
-        """Handle resume upload."""
-        status = upload_resume(file)
-        resume_display, job_display = get_available_documents()
-        resume_choices, job_choices = update_dropdowns()
-        return status, resume_display, job_display, resume_choices, job_choices
-    
-    def handle_job_upload(file):
-        """Handle job posting upload."""
-        status = upload_job_posting(file)
-        resume_display, job_display = get_available_documents()
-        resume_choices, job_choices = update_dropdowns()
-        return status, resume_display, job_display, resume_choices, job_choices
-    
-    def handle_job_search(query):
-        """Handle online job search."""
-        status = search_job_online(query)
-        resume_display, job_display = get_available_documents()
-        resume_choices, job_choices = update_dropdowns()
-        return status, resume_display, job_display, resume_choices, job_choices
-    
-    def handle_cover_letter_creation(resume, job, create_doc):
-        """Handle cover letter creation."""
-        result = download_cover_letter(resume, job, create_doc)
-        return result
+    def handle_upload(file):
+        """Handle file upload."""
+        status, resume_list, job_list = upload_document(file)
+        return status, resume_list, job_list
     
     def handle_clear():
-        """Handle clearing conversation."""
-        cleared_state = clear_conversation()
-        resume_choices, job_choices = update_dropdowns()
-        return cleared_state[0], cleared_state[1], cleared_state[2], resume_choices, job_choices
+        """Handle clear all."""
+        return clear_all()
     
     # Connect events
     send_btn.click(
         handle_send,
         inputs=[msg, chatbot],
-        outputs=[chatbot, resumes_display, jobs_display]
+        outputs=[chatbot, msg, resumes_display, jobs_display]
     )
     
     msg.submit(
         handle_send,
         inputs=[msg, chatbot],
-        outputs=[chatbot, resumes_display, jobs_display]
+        outputs=[chatbot, msg, resumes_display, jobs_display]
     )
     
-    resume_upload.change(
-        handle_resume_upload,
-        inputs=[resume_upload],
-        outputs=[resume_status, resumes_display, jobs_display, resume_select, job_select]
-    )
-    
-    job_upload.change(
-        handle_job_upload,
-        inputs=[job_upload],
-        outputs=[job_status, resumes_display, jobs_display, resume_select, job_select]
-    )
-    
-    search_btn.click(
-        handle_job_search,
-        inputs=[job_query],
-        outputs=[search_status, resumes_display, jobs_display, resume_select, job_select]
-    )
-    
-    cover_letter_btn.click(
-        handle_cover_letter_creation,
-        inputs=[resume_select, job_select, create_doc_checkbox],
-        outputs=[cover_letter_result]
+    file_upload.change(
+        handle_upload,
+        inputs=[file_upload],
+        outputs=[upload_status, resumes_display, jobs_display]
     )
     
     clear_btn.click(
         handle_clear,
-        outputs=[chatbot, resumes_display, jobs_display, resume_select, job_select]
+        outputs=[chatbot, resumes_display, jobs_display]
     )
+
 
 if __name__ == "__main__":
     # Check for required environment variables
@@ -383,8 +263,6 @@ if __name__ == "__main__":
     
     # Launch the Gradio app
     demo.launch(
-        # server_name="0.0.0.0",
-        # server_port=7860,
         share=False,
         show_error=True
     )

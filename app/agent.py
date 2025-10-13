@@ -9,7 +9,6 @@ This application provides an AI agent that helps with job applications by:
 
 import os
 from typing import Annotated, Literal, Sequence, TypedDict
-from pathlib import Path
 from dotenv import load_dotenv
 
 import re, unicodedata
@@ -22,8 +21,6 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
-from docx import Document
-from docx.shared import Inches
 
 # Load environment variables from .env file
 load_dotenv()
@@ -243,64 +240,22 @@ def list_searched_content() -> str:
 
 
 @tool
-def create_cover_letter(resume_filename: str, job_query: str, create_document: bool = True) -> str:
+def create_cover_letter(resume_filename: str, job_query: str) -> str:
     """
     Create a cover letter based on a specific resume and job posting.
     
     Args:
         resume_filename: The filename of the resume to use
         job_query: The query/URL of the job posting to use
-        create_document: Whether to create a Word document (default: True)
         
     Returns:
-        str: The cover letter content or document creation status
+        str: The cover letter content
     """
-    return f"This tool will create a cover letter using resume '{resume_filename}' and job '{job_query}'. Create document: {create_document}"
-
-
-@tool
-def document_creator(content: str, filename: str = "cover_letter.docx") -> str:
-    """
-    Create a Word document with the given content.
-    
-    Args:
-        content: The text content to include in the document
-        filename: Name of the output file (default: cover_letter.docx)
-        
-    Returns:
-        str: Path to the created document
-    """
-    try:
-        # Ensure we have a .docx extension
-        if not filename.endswith('.docx'):
-            filename += '.docx'
-        
-        # Create documents directory if it doesn't exist
-        docs_dir = Path("documents")
-        docs_dir.mkdir(exist_ok=True)
-        
-        filepath = docs_dir / filename
-        
-        # Create a new Document
-        doc = Document()
-        
-        # Add content
-        doc.add_paragraph(content)
-        
-        # Add some spacing
-        doc.add_paragraph()
-        
-        # Save the document
-        doc.save(str(filepath))
-        
-        return f"Document created successfully at: {filepath}"
-    
-    except Exception as e:
-        return f"Error creating document: {str(e)}"
+    return f"This tool will create a cover letter using resume '{resume_filename}' and job '{job_query}'."
 
 
 # Bind tools to the LLM
-tools = [pdf_reader, web_search, list_documents, list_searched_content, create_cover_letter, document_creator]
+tools = [pdf_reader, web_search, list_documents, list_searched_content, create_cover_letter]
 llm_with_tools = llm.bind_tools(tools)
 
 # Create the agent node
@@ -380,7 +335,11 @@ def custom_tool_node(state: AgentState):
             
         elif tool_name == "list_documents":
             if "resumes" in state and state["resumes"]:
-                result = "Available documents:\n" + "\n".join([f"• {filename}" for filename in state["resumes"].keys()])
+                doc_list = []
+                for filename, data in state["resumes"].items():
+                    content_preview = data.get("content", "")[:200] if isinstance(data, dict) else str(data)[:200]
+                    doc_list.append(f"• {filename} (Content loaded: {len(content_preview)} chars preview available)")
+                result = "Available documents (ALREADY LOADED IN MEMORY):\n" + "\n".join(doc_list)
             else:
                 result = "No documents available. Please upload a document first."
                 
@@ -394,11 +353,15 @@ def custom_tool_node(state: AgentState):
             resume_filename = tool_args.get("resume_filename", "")
             job_query = tool_args.get("job_query", "")
             
+            # Debug: Show what's available
+            available_resumes = list(state.get("resumes", {}).keys()) if "resumes" in state else []
+            available_jobs = list(state.get("job_summaries", {}).keys()) if "job_summaries" in state else []
+            
             # Check if resume and job exist in state
             if "resumes" not in state or resume_filename not in state["resumes"]:
-                result = f"Error: Resume '{resume_filename}' not found in memory. Please read the resume first."
+                result = f"Error: Resume '{resume_filename}' not found in memory.\nAvailable resumes: {', '.join(available_resumes) if available_resumes else 'None'}\nPlease use the exact filename from the list above."
             elif "job_summaries" not in state or job_query not in state["job_summaries"]:
-                result = f"Error: Job posting '{job_query}' not found in memory. Please search for the job posting first."
+                result = f"Error: Job posting '{job_query}' not found in memory.\nAvailable job postings: {', '.join(available_jobs) if available_jobs else 'None'}\nPlease use the exact query/URL from the list above."
             else:
                 # Generate cover letter using LLM
                 resume_content = state["resumes"][resume_filename]["content"]
@@ -425,17 +388,7 @@ Cover Letter:"""
                 response = llm.invoke([HumanMessage(content=prompt)])
                 cover_letter = response.content
                 
-                # Check if user wants a document
-                create_doc = tool_args.get("create_document", True)
-                if create_doc:
-                    # Create document
-                    doc_result = document_creator.invoke({"content": cover_letter, "filename": f"cover_letter_{resume_filename}_{job_query.replace('/', '_')}.docx"})
-                    result = f"Cover letter created successfully!\n\n{cover_letter}\n\n{doc_result}"
-                else:
-                    result = f"Cover letter created:\n\n{cover_letter}"
-                    
-        elif tool_name == "document_creator":
-            result = document_creator.invoke(tool_args)
+                result = f"Cover letter created:\n\n{cover_letter}"
             
         else:
             result = f"Tool {tool_name} not implemented"
@@ -447,7 +400,12 @@ Cover Letter:"""
         )
         tool_messages.append(tool_message)
     
-    return {"messages": tool_messages}
+    # Return both messages and updated state
+    return {
+        "messages": tool_messages,
+        "resumes": state.get("resumes", {}),
+        "job_summaries": state.get("job_summaries", {})
+    }
 
 # Create the graph
 workflow = StateGraph(AgentState)
@@ -491,24 +449,31 @@ def run_job_assistant():
     config = {"configurable": {"thread_id": "job_assistant_session"}}
     
     # Send initial system message
-    system_message = """You are a job application assistant. Your key behaviors:
+    system_message = """You are a job application assistant. CRITICAL RULES:
 
-1. When asked to create a cover letter:
-   - First check if documents and searched content are available in memory
-   - If missing, ask the user to provide a document file path and/or search query/URL
-   - Confirm which specific document and searched content combination to use
-   - Ask if they want a Word document created
+1. DOCUMENTS ARE ALREADY LOADED:
+   - If a user mentions a document name, it is ALREADY uploaded and loaded
+   - NEVER use pdf_reader for documents the user mentions - they are already in memory
+   - ONLY use pdf_reader if the user explicitly says "read this NEW file: /path/to/file.pdf"
 
-2. When reading documents:
-   - Use the pdf_reader tool with the file path for PDF documents
-   - The document will be stored in memory for future use
+2. ALWAYS CHECK WHAT'S AVAILABLE FIRST:
+   - Use list_documents to see loaded resumes (these are ready to use immediately)
+   - Use list_searched_content to see loaded job postings (these are ready to use immediately)
+   - These tools show what's ALREADY in memory - no need to load again
 
-3. When searching for content:
-   - Use the web_search tool with URL or search query for web content
-   - Use the pdf_reader tool with file path for PDF documents
-   - The content will be stored in memory for future use
+3. CREATING COVER LETTERS:
+   - Use create_cover_letter with exact filenames from list_documents
+   - Use exact queries from list_searched_content
+   - Example: create_cover_letter(resume_filename="Arnel Malubay Resume.pdf", job_query="Software Engineer")
 
-4. Always be helpful and guide users through the process step by step."""
+4. WHEN TO USE TOOLS:
+   - pdf_reader: ONLY for NEW files not yet uploaded
+   - web_search: ONLY for NEW job searches
+   - list_documents: To see what resumes are available
+   - list_searched_content: To see what job postings are available
+   - create_cover_letter: To generate cover letters from available data
+
+5. If the user uploaded a resume, it's ALREADY LOADED. Just use list_documents to confirm and then use it directly."""
     
     # Initialize with system message
     app.invoke(
