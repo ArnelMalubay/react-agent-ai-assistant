@@ -1,13 +1,47 @@
-# Job Application Assistant
+# General Purpose AI Assistant
 
-An AI-powered assistant built with LangGraph and LangChain that helps with job applications by reading resumes, searching for job postings, and creating cover letters.
+An intelligent AI assistant built with LangGraph, LangChain, and Gradio that combines RAG (Retrieval-Augmented Generation), web search, and document creation capabilities.
 
 ## Features
 
-- **Resume Reader**: Extract text content from PDF resumes using PyMuPDF4LLM
-- **Job Search**: Search for job postings and extract content from URLs using Tavily
-- **Document Creator**: Generate Word documents for cover letters and other job application materials
-- **Conversational AI**: Interactive chat interface for seamless job application assistance
+### 🤖 **Three Powerful Tools:**
+
+1. **📚 Document Retrieval (RAG)**
+   - Upload PDFs to build a knowledge base
+   - Semantic search through uploaded documents
+   - Uses ChromaDB for vector storage
+   - Powered by HuggingFace embeddings
+
+2. **🌐 Web Search**
+   - Real-time web search using Tavily API
+   - Get current information and recent news
+   - Comprehensive search results with sources
+
+3. **📝 Document Creation**
+   - Generate Word documents (.docx)
+   - Download created documents directly
+   - Formatted and professional output
+
+## Architecture
+
+### **File Structure:**
+```
+app/
+├── tools.py       # Tool definitions (RAG, Search, Document Creation)
+├── agent.py       # LangGraph workflow and agent logic
+└── app.py         # Gradio web interface
+
+requirements.txt   # Python dependencies
+.env              # Environment variables (create this)
+```
+
+### **Technology Stack:**
+- **LangGraph**: Agent workflow orchestration
+- **LangChain**: Tool integration and RAG pipeline
+- **Gradio**: Web interface
+- **ChromaDB**: Vector database for document storage
+- **Groq**: Fast LLM inference
+- **Tavily**: Web search API
 
 ## Setup
 
@@ -19,7 +53,7 @@ pip install -r requirements.txt
 
 ### 2. Environment Variables
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env` file in the root directory:
 
 ```env
 GROQ_API_KEY=your-groq-api-key-here
@@ -28,78 +62,156 @@ TAVILY_API_KEY=your-tavily-api-key-here
 
 ### 3. Get API Keys
 
-- **Groq API Key**: Get your API key from [Groq Console](https://console.groq.com/keys)
-- **Tavily API Key**: Get your API key from [Tavily](https://tavily.com/)
+- **Groq API Key**: [Groq Console](https://console.groq.com/keys)
+- **Tavily API Key**: [Tavily](https://tavily.com/)
 
 ## Usage
 
-Run the application:
+### Start the Application
 
 ```bash
 python app/app.py
 ```
 
+The application will be available at `http://localhost:7860`
+
+### Using the Assistant
+
+1. **Chat Normally**: Ask any question, just like a regular chatbot
+2. **Upload PDFs**: Add documents to expand the knowledge base
+3. **Web Search**: Ask about current events or recent information
+4. **Create Documents**: Request document creation and download them
+
 ### Example Interactions
 
-1. **Reading a Resume**:
-   ```
-   You: Please read my resume at /path/to/resume.pdf
-   ```
+**Document Retrieval:**
+```
+You: What does the uploaded document say about machine learning?
+AI: [Searches uploaded PDFs and provides relevant information]
+```
 
-2. **Searching for Jobs**:
-   ```
-   You: Search for software engineer jobs in San Francisco
-   You: Get details from this job posting: https://example.com/job-posting
-   ```
+**Web Search:**
+```
+You: What's the latest news about AI?
+AI: [Uses Tavily to search the web for current information]
+```
 
-3. **Creating Cover Letters**:
-   ```
-   You: Create a cover letter for a software engineer position
-   ```
+**Document Creation:**
+```
+You: Create a summary document of our conversation
+AI: [Generates a Word document that you can download]
+```
 
-## Architecture
+## How It Works
 
-The application uses LangGraph to create a workflow with the following structure:
+### LangGraph Workflow
 
 ```
 START → agent → conditional edge → [tools | END]
 tools → agent
 ```
 
-- **Agent Node**: Processes user messages and decides on actions
-- **Tool Node**: Executes the appropriate tools (resume reader, job search, document creator)
-- **Conditional Routing**: Determines whether to use tools or end the conversation
+1. **Agent Node**: Processes user messages and decides which tool to use
+2. **Tool Selection**: Chooses between retrieve_documents, web_search, or create_document
+3. **Tool Execution**: Executes the selected tool
+4. **Response Generation**: Returns results to the user
 
-## Tools
+### RAG Pipeline
 
-### 1. Resume Reader (`resume_reader`)
-- **Input**: File path to PDF resume
-- **Output**: Extracted text content
-- **Technology**: PyMuPDF4LLM
+1. PDF uploaded → Text extracted using PyMuPDF4LLM
+2. Text chunked → RecursiveCharacterTextSplitter (500 chars, 150 overlap)
+3. Embeddings created → HuggingFace BGE-small-en-v1.5
+4. Stored in ChromaDB → Persistent vector database
+5. Query → Semantic search → Relevant chunks returned
 
-### 2. Job Search (`job_search`)
-- **Input**: Search query or job posting URL
-- **Output**: Search results or extracted content
-- **Technology**: Tavily Search API
+### Tool Selection Logic
 
-### 3. Document Creator (`document_creator`)
-- **Input**: Text content and filename
-- **Output**: Word document (.docx)
-- **Technology**: python-docx
+The agent automatically selects the appropriate tool based on:
+- **Document-related questions** → retrieve_documents
+- **Current events/web info** → web_search
+- **Document creation requests** → create_document
 
-## File Structure
+## Project Structure
 
-```
-job-application-assistant/
-├── app/
-│   └── app.py              # Main application
-├── documents/              # Generated documents (auto-created)
-├── requirements.txt        # Python dependencies
-├── .env.example           # Environment variables template
-├── .gitignore             # Git ignore rules
-└── README.md              # This file
+### **tools.py**
+Contains three main tools as LangChain tools:
+- `retrieve_documents(query, collection_name, top_k)`: RAG retrieval
+- `web_search(query)`: Tavily web search
+- `create_document(content, filename, title)`: Word document creation
+
+### **agent.py**
+LangGraph agent implementation:
+- Agent state management
+- Tool binding with LLM
+- Workflow definition
+- Conversation memory
+
+### **app.py**
+Gradio web interface:
+- Chat interface
+- PDF upload functionality
+- Document download section
+- State management
+
+## Features in Detail
+
+### Document Upload
+- Supports multiple PDF uploads
+- Automatic text extraction and chunking
+- Persistent storage in ChromaDB
+- Real-time status updates
+
+### Chat Interface
+- Streaming responses
+- Message history
+- Context-aware conversations
+- Tool usage transparency
+
+### Document Downloads
+- Generated documents stored in `documents/` folder
+- Download directly from interface
+- Refresh to see new documents
+- Professional Word format
+
+## Configuration
+
+### Adjustable Parameters
+
+**In `tools.py`:**
+- `top_k`: Number of RAG results (default: 5)
+- `max_results`: Web search results (default: 5)
+- `search_depth`: Tavily search depth (default: "advanced")
+
+**In `agent.py`:**
+- `model`: Groq model (default: "llama-3.1-8b-instant")
+- `temperature`: LLM creativity (default: 0.7)
+
+**In `app.py`:**
+- `chunk_size`: Text chunking size (default: 500)
+- `chunk_overlap`: Chunk overlap (default: 150)
+- `collection_name`: ChromaDB collection name
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No API key" error**: Make sure `.env` file exists with valid API keys
+2. **ChromaDB errors**: Delete `chroma_db/` folder and re-upload documents
+3. **Import errors**: Run `pip install -r requirements.txt`
+4. **Document not found**: Check `documents/` folder exists
+
+### Debug Mode
+
+Set environment variable for verbose logging:
+```bash
+export LANGCHAIN_VERBOSE=true
+python app/app.py
 ```
 
 ## License
 
 MIT License - see LICENSE file for details.
+
+## Contributing
+
+Feel free to submit issues and enhancement requests!

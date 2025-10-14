@@ -49,6 +49,7 @@ documents/
 *.pdf
 logs/
 *.log
+chroma_db/
 
 # Cursor specific
 .cursor/
