@@ -20,7 +20,7 @@ from langchain_core.tools import tool
 from langchain_core.documents import Document
 from langchain_tavily import TavilySearch
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from docx import Document as WordDocument
@@ -170,30 +170,40 @@ def chunk_documents(documents: List[Document], chunk_size: int = 500, chunk_over
     return chunked_docs
 
 
-def get_vectorstore(collection_name: str = "general_collection", persist_directory: str = "./chroma_db") -> Chroma:
+def get_vectorstore(collection_name: str = "general_collection", persist_directory: str = None) -> Chroma:
     """
     Get or create a LangChain Chroma vectorstore.
     
     Args:
         collection_name (str): Name of the collection
-        persist_directory (str): Directory to persist the vectorstore
+        persist_directory (str): Directory to persist the vectorstore. 
+                                 If None, creates an ephemeral (in-memory) vectorstore.
         
     Returns:
         Chroma: LangChain Chroma vectorstore object
     """
     embeddings = HuggingFaceEmbeddings(model_name = "BAAI/bge-small-en-v1.5")
     
-    vectorstore = Chroma(
-        collection_name = collection_name,
-        embedding_function = embeddings,
-        persist_directory = persist_directory
-    )
+    if persist_directory is None:
+        # Create ephemeral (in-memory) vectorstore
+        vectorstore = Chroma(
+            collection_name = collection_name,
+            embedding_function = embeddings
+        )
+    else:
+        # Create persistent vectorstore
+        vectorstore = Chroma(
+            collection_name = collection_name,
+            embedding_function = embeddings,
+            persist_directory = persist_directory
+        )
     
     return vectorstore
 
 
 def process_and_store_pdf(filepath: str, collection_name: str = "general_collection", 
-                          chunk_size: int = 500, chunk_overlap: int = 150) -> int:
+                          chunk_size: int = 500, chunk_overlap: int = 150,
+                          persist_directory: str = None) -> int:
     """
     Process a PDF file and store it in the Chroma vectorstore using LangChain.
     
@@ -202,6 +212,8 @@ def process_and_store_pdf(filepath: str, collection_name: str = "general_collect
         collection_name (str): Name of the Chroma collection
         chunk_size (int): Size for text chunking
         chunk_overlap (int): Overlap for text chunking
+        persist_directory (str): Directory to persist the vectorstore. 
+                                 If None, uses ephemeral (in-memory) storage.
         
     Returns:
         int: Number of chunks added to the vectorstore
@@ -220,13 +232,13 @@ def process_and_store_pdf(filepath: str, collection_name: str = "general_collect
     chunked_docs = chunk_documents(documents, chunk_size, chunk_overlap)
     
     # Get vectorstore and add documents
-    vectorstore = get_vectorstore(collection_name)
+    vectorstore = get_vectorstore(collection_name, persist_directory)
     vectorstore.add_documents(chunked_docs)
     
     return len(chunked_docs)
 
 @tool
-def retrieve_documents(query: str, collection_name: str = "general_collection", top_k: int = 5) -> str:
+def retrieve_documents(query: str, collection_name: str = "general_collection", top_k: int = 3, persist_directory: str = None) -> str:
     """
     Retrieve relevant documents from the RAG collection using semantic search.
     Use this tool when the user asks questions that might be answered by previously uploaded documents.
@@ -235,13 +247,14 @@ def retrieve_documents(query: str, collection_name: str = "general_collection", 
         query: The search query to find relevant documents
         collection_name: Name of the ChromaDB collection (default: "general_collection")
         top_k: Number of top results to return (default: 5)
+        persist_directory: Directory where vectorstore is persisted. If None, uses ephemeral storage.
         
     Returns:
         str: Retrieved document contents with metadata
     """
     try:
         # Get vectorstore using LangChain
-        vectorstore = get_vectorstore(collection_name)
+        vectorstore = get_vectorstore(collection_name, persist_directory)
         
         # Perform similarity search with scores
         results = vectorstore.similarity_search_with_score(query, k = top_k)
@@ -292,58 +305,8 @@ def web_search(query: str) -> str:
     except Exception as e:
         return f"Error searching for '{query}': {str(e)}"
 
-    
-        
-
-
-@tool
-def create_document(content: str, filename: str = "document.docx", title: str = "Document") -> str:
-    """
-    Create a Word document (.docx) that the user can download.
-    Use this tool when the user asks to create, generate, or save a document.
-    
-    Args:
-        content: The text content to include in the document
-        filename: Name of the output file (default: "document.docx")
-        title: Title to display at the top of the document (default: "Document")
-        
-    Returns:
-        str: Path to the created document or error message
-    """
-    try:
-        # Ensure .docx extension
-        if not filename.endswith(".docx"):
-            filename += ".docx"
-        
-        # Create documents directory if it doesn"t exist
-        docs_dir = Path("documents")
-        docs_dir.mkdir(exist_ok = True)
-        
-        filepath = docs_dir / filename
-        
-        # Create a new Word document
-        doc = WordDocument()
-        
-        # Add title
-        if title:
-            doc.add_heading(title, 0)
-        
-        # Add content (split by paragraphs)
-        paragraphs = content.split("\n\n")
-        for para in paragraphs:
-            if para.strip():
-                doc.add_paragraph(para.strip())
-        
-        # Save the document
-        doc.save(str(filepath))
-        
-        return f"✅ Document created successfully at: {filepath}\nThe file is ready for download."
-    
-    except Exception as e:
-        return f"❌ Error creating document: {str(e)}"
-
 
 # Helper function to get available tools
 def get_all_tools():
     """Return all available tools for the agent."""
-    return [retrieve_documents, web_search, create_document]
+    return [retrieve_documents, web_search]
