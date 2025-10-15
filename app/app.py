@@ -22,7 +22,7 @@ load_dotenv()
 
 # Global configuration
 COLLECTION_NAME = "general_collection"
-CHROMA_DIR = "./chroma_db"
+CHROMA_DIR = None  # Set to None for ephemeral (in-memory) storage, or "./chroma_db" for persistent storage
 
 
 def process_message(message, history):
@@ -74,7 +74,8 @@ def upload_pdfs(files):
                 filepath = file.name,
                 collection_name = COLLECTION_NAME,
                 chunk_size = 500,
-                chunk_overlap = 150
+                chunk_overlap = 150,
+                persist_directory = CHROMA_DIR
             )
             
             if num_chunks > 0:
