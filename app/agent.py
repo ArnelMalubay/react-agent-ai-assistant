@@ -18,7 +18,9 @@ from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
-from tools import get_all_tools
+from tools import get_all_tools, process_and_store_pdf
+from datetime import date
+
 
 # Load environment variables
 load_dotenv()
@@ -94,7 +96,7 @@ app = workflow.compile(checkpointer = memory)
 
 def get_system_message() -> str:
     """Get the system message for the agent."""
-    return """You are a helpful AI assistant with access to three powerful tools:
+    return f"""You are a helpful AI assistant with access to two powerful tools:
 
 1. **retrieve_documents**: Use this to search through uploaded documents in the knowledge base. 
    - Use when users ask about content from uploaded PDFs or documents
@@ -104,32 +106,70 @@ def get_system_message() -> str:
    - Use for current events, recent news, or information not in the documents
    - Provides real-time web search results
 
-3. **create_document**: Use this to create Word documents that users can download.
-   - Use when users ask to create, generate, or save a document
-   - Creates formatted .docx files
-
 Guidelines:
 - Always be helpful and conversational
-- Use the appropriate tool based on the user's needs
-- If a question could be answered by documents, try retrieve_documents first
-- If you need current information, use web_search
-- When creating documents, ask for clarification on filename and title if not provided
+- If you can't answer by yourself, use retrieve_documents first.
+- If you can't find it in the documents, use web_search.
+- If you can't find it in both, ask the user to provide more information.
 - Explain your actions clearly to the user
+- The current date is {date.today().strftime("%b %d, %Y")}
 """
 
-
 if __name__ == "__main__":
-    # Test the agent
-    print("🤖 General Purpose AI Assistant")
-    print("=" * 50)
-    
     # Check for required environment variables
     if not os.getenv("GROQ_API_KEY"):
         print("❌ Error: GROQ_API_KEY environment variable is required.")
+        print("Please set your Groq API key in your .env file:")
+        print("GROQ_API_KEY=your-groq-api-key-here")
         exit(1)
     
     if not os.getenv("TAVILY_API_KEY"):
         print("❌ Error: TAVILY_API_KEY environment variable is required.")
+        print("Please set your Tavily API key in your .env file:")
+        print("TAVILY_API_KEY=your-tavily-api-key-here")
         exit(1)
     
-    print("✅ Agent initialized successfully!")
+    # Process PDF
+    filepath = 'Resume.pdf'
+    print(f"\n📄 Processing PDF: {filepath}")
+    num_chunks = process_and_store_pdf(filepath)
+    print(f"✅ Processed {num_chunks} chunks from {filepath}\n")
+    
+    # Interactive CLI loop
+    print("🤖 General Purpose AI Assistant")
+    print("=" * 50)
+    print("I can help you with:")
+    print("• Searching through uploaded documents")
+    print("• Searching the web for current information")
+    print("\nType 'exit' to quit.")
+    print("=" * 50)
+    
+    config = {"configurable": {"thread_id": "cli_session"}}
+    
+    while True:
+        user_input = input("\n👤 You:  ")
+        
+        if user_input.strip().lower() == 'exit':
+            print("👋  Goodbye!")
+            break
+        
+        if not user_input.strip():
+            continue
+        
+        try:
+            # Run the agent
+            from langchain_core.messages import HumanMessage
+            
+            response = app.invoke(
+                {"messages": [HumanMessage(content = user_input.strip())]},
+                config = config
+            )
+            
+            # Get the last AI message
+            last_message = response["messages"][-1]
+            print(f"\n🤖 Assistant: {last_message.content}")
+            
+        except Exception as e:
+            print(f"\n❌ Error: {str(e)}")
+            print("Please try again or rephrase your question.")
+    
