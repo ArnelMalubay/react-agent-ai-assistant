@@ -238,21 +238,24 @@ def process_and_store_pdf(filepath: str, collection_name: str = "general_collect
     return len(chunked_docs)
 
 @tool
-def retrieve_documents(query: str, collection_name: str = "general_collection", top_k: int = 3, persist_directory: str = None) -> str:
+def retrieve_documents(query: str) -> str:
     """
     Retrieve relevant documents from the RAG collection using semantic search.
     Use this tool when the user asks questions that might be answered by previously uploaded documents.
+    All uploaded documents are stored in a single collection.
     
     Args:
         query: The search query to find relevant documents
-        collection_name: Name of the ChromaDB collection (default: "general_collection")
-        top_k: Number of top results to return (default: 5)
-        persist_directory: Directory where vectorstore is persisted. If None, uses ephemeral storage.
         
     Returns:
         str: Retrieved document contents with metadata
     """
     try:
+        # Use fixed collection name and settings
+        collection_name = "general_collection"
+        persist_directory = None  # Ephemeral storage
+        top_k = 3
+        
         # Get vectorstore using LangChain
         vectorstore = get_vectorstore(collection_name, persist_directory)
         
@@ -260,7 +263,7 @@ def retrieve_documents(query: str, collection_name: str = "general_collection", 
         results = vectorstore.similarity_search_with_score(query, k = top_k)
         
         if not results:
-            return "No relevant documents found in the collection."
+            return "No relevant documents found in the collection. Make sure documents have been uploaded first."
         
         # Format results
         formatted_results = []
