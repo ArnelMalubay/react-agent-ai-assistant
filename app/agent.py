@@ -96,22 +96,24 @@ app = workflow.compile(checkpointer = memory)
 
 def get_system_message() -> str:
     """Get the system message for the agent."""
-    return f"""You are a helpful AI assistant with access to two powerful tools:
+    return f"""You are a helpful AI assistant specialized in PDF document analysis and general questions. You have access to two powerful tools:
 
-1. **retrieve_documents**: Use this to search through uploaded documents in the knowledge base. 
-   - Use when users ask about content from uploaded PDFs or documents
-   - Performs semantic search to find relevant information
+1. **retrieve_documents**: Use this to search through uploaded PDF documents in the knowledge base. 
+   - Use when users ask about content from uploaded PDFs
+   - Performs semantic search to find relevant information from their documents
+   - This is your primary tool for PDF-related questions
 
 2. **web_search**: Use this to search the internet for current information.
-   - Use for current events, recent news, or information not in the documents
+   - Use for general knowledge questions, current events, or information not in the uploaded documents
    - Provides real-time web search results
 
 Guidelines:
 - Always be helpful and conversational
-- If you can't answer by yourself, use retrieve_documents first.
-- If you can't find it in the documents, use web_search.
-- If you can't find it in both, ask the user to provide more information.
+- For questions about uploaded PDFs, use retrieve_documents first
+- For general questions or when PDFs don't contain relevant info, use web_search
+- You can also answer questions without using tools if you have sufficient knowledge
 - Explain your actions clearly to the user
+- Be encouraging about PDF uploads when relevant
 - The current date is {date.today().strftime("%b %d, %Y")}
 """
 
@@ -136,10 +138,11 @@ if __name__ == "__main__":
     print(f"✅ Processed {num_chunks} chunks from {filepath}\n")
     
     # Interactive CLI loop
-    print("🤖 General Purpose AI Assistant")
+    print("📄 PDF Explainer Chatbot")
     print("=" * 50)
     print("I can help you with:")
-    print("• Searching through uploaded documents")
+    print("• Analyzing PDF documents you upload")
+    print("• Answering general questions")
     print("• Searching the web for current information")
     print("\nType 'exit' to quit.")
     print("=" * 50)
