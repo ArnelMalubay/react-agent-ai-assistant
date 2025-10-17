@@ -146,207 +146,43 @@ def clear_files():
     return "No files uploaded yet"
 
 
-# Custom CSS for clean, professional design matching the reference image
-custom_css = """
-.gradio-container {
-    font-family: 'Inter', 'Segoe UI', sans-serif !important;
-    max-width: 1200px !important;
-    margin: auto !important;
-}
-
-.contain {
-    background: #f8fafc !important;
-}
-
-h1 {
-    color: #1e293b !important;
-    font-weight: 700 !important;
-    font-size: 2.5rem !important;
-    margin-bottom: 1rem !important;
-}
-
-h2 {
-    color: #374151 !important;
-    font-weight: 600 !important;
-    font-size: 1.5rem !important;
-    margin: 2rem 0 1rem 0 !important;
-}
-
-#chatbot {
-    border-radius: 12px !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-    background: white !important;
-    border: 1px solid #e5e7eb !important;
-}
-
-.message {
-    border-radius: 8px !important;
-    padding: 12px 16px !important;
-    margin: 8px 0 !important;
-}
-
-.user {
-    background: #eff6ff !important;
-    border-left: 4px solid #3b82f6 !important;
-}
-
-.bot {
-    background: #f9fafb !important;
-    border-left: 4px solid #6b7280 !important;
-}
-
-textarea {
-    border-radius: 8px !important;
-    border: 2px solid #d1d5db !important;
-    font-size: 15px !important;
-    background: white !important;
-}
-
-textarea:focus {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
-}
-
-.primary {
-    background: #3b82f6 !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    transition: all 0.2s !important;
-    color: white !important;
-}
-
-.primary:hover {
-    background: #2563eb !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-}
-
-.secondary {
-    background: white !important;
-    border: 2px solid #3b82f6 !important;
-    color: #3b82f6 !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-.secondary:hover {
-    background: #eff6ff !important;
-}
-
-.markdown {
-    color: #4b5563 !important;
-    line-height: 1.6 !important;
-}
-
-/* Upload area styling */
-.wrap {
-    border: 2px dashed #d1d5db !important;
-    border-radius: 8px !important;
-    background: #f9fafb !important;
-    padding: 20px !important;
-}
-
-.wrap:hover {
-    border-color: #3b82f6 !important;
-    background: #eff6ff !important;
-}
-
-/* File upload button styling */
-input[type="file"] {
-    border-radius: 8px !important;
-    padding: 10px !important;
-}
-
-/* Status text styling */
-.textbox {
-    background: #f3f4f6 !important;
-    border-radius: 6px !important;
-    border: 1px solid #e5e7eb !important;
-}
-"""
-
-# Create Gradio interface with custom theme
-theme = gr.themes.Base(
-    primary_hue = "blue",
-    secondary_hue = "slate",
-    neutral_hue = "slate",
-    font = [gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
-    font_mono = [gr.themes.GoogleFont("Fira Code"), "monospace"]
-)
-
-with gr.Blocks(title = "PDF Explainer Chatbot", theme = theme, css = custom_css) as demo:
+with gr.Blocks(title = "PDF Explainer Chatbot") as demo:
+    gr.Markdown("# 🤖 ReAct Agent Assistant")
     gr.Markdown("""
-    # 📄 PDF Explainer Chatbot
-    
-    I'm an AI assistant that can help you with general questions and analyze PDF documents you upload.
-    
-    **Key Features:**
-    • 💬 **Chat normally:** Ask me anything, even without uploading PDFs
-    • 📤 **Upload PDFs:** Add documents anytime to get document-specific answers  
-    • 📚 **Multiple uploads:** You can upload more PDFs during our conversation
-    • 🔍 **Smart retrieval:** I'll automatically find relevant content from your PDFs when answering questions
-    """)
-    
-    # PDF Upload Section at the top
-    with gr.Row():
-        upload_col1 = gr.Column(scale = 1)
-        upload_col2 = gr.Column(scale = 3)
-        upload_col3 = gr.Column(scale = 1)
-        
-        with upload_col1:
-            gr.Markdown("")
-            
-        with upload_col2:
-            with gr.Row():
-                upload_btn_label = gr.Markdown("**Upload PDF Documents (Optional)**")
-                file_upload = gr.File(
-                    label = "",
-                    file_types = [".pdf"],
-                    file_count = "multiple",
-                    container = False,
-                    scale = 4
-                )
-                process_btn = gr.Button("📄 Process PDFs", variant = "primary", scale = 1)
-        
-        with upload_col3:
-            gr.Markdown("")
-    
-    upload_status = gr.Textbox(
-        show_label = False,
-        interactive = False,
-        lines = 2,
-        container = False,
-        visible = True
-    )
-    
-    # Chat Section below
-    gr.Markdown("""
-    ---
-    ## 💬 Chat
-    
-    Ask me anything! If you've uploaded PDFs, I'll use them to provide more accurate answers.
+    **I'm an AI assistant built using the ReAct agentic framework. I am capable of answering general questions, analyze uploaded PDF documents (through RAG), and perform web searches.**
+
+    - 📤 **Upload PDFs**: Add documents anytime to get document-specific answers. Press Process PDFs below to add documents to my knowledge base.
+    - 🌐 **Search the Web**: I can perform web searches to get the latest information and news.
     """)
     
     chatbot = gr.Chatbot(
-        label = "",
         height = 500,
         show_copy_button = True,
         type = 'messages',
-        avatar_images = (None, "🤖"),
-        container = True,
-        value = [{"role": "assistant", "content": "Hello! I'm here to help you with any questions or tasks you have related to PDF documents. If you'd like to get started, could you please upload the PDF documents you'd like me to assist with? This will allow me to provide more accurate and specific information. I'm ready when you are!"}]
+        value = [{"role": "assistant", "content": "Hello! I'm here to help you with any questions or tasks you have. Ask away or upload PDFs if you want. I'm ready when you are!"}]
     )
     
     with gr.Row():
         msg = gr.Textbox(
             placeholder = "Type your message here...",
             show_label = False,
-            scale = 5,
-            lines = 1,
-            container = False
+            scale = 4
         )
-        send_btn = gr.Button("Send", variant = "primary", scale = 1, min_width = 100)
+        send_btn = gr.Button("Send", variant = "primary", scale = 1)
+    
+    with gr.Row():
+        file_upload = gr.File(
+            label = "Upload PDF Documents",
+            file_types = [".pdf"],
+            file_count = "multiple"
+        )
+        process_btn = gr.Button("Process PDFs", variant = "secondary")
+    
+    upload_status = gr.Textbox(
+        label = "Upload Status",
+        interactive = False,
+        lines = 2
+    )
     
     # Event handlers
     def handle_send(message, history):
@@ -413,5 +249,7 @@ if __name__ == "__main__":
     # Launch the Gradio app
     demo.launch(
         share = False,
-        show_error = True
+        show_error = True,
+        server_name = "0.0.0.0", 
+        server_port = 7860
     )
