@@ -28,7 +28,7 @@ load_dotenv()
 # Initialize the LLM
 llm = ChatGroq(
     model = "llama-3.1-8b-instant",
-    temperature = 0.7,
+    temperature = 0.4,
     groq_api_key = os.getenv("GROQ_API_KEY")
 )
 
@@ -108,12 +108,10 @@ def get_system_message() -> str:
    - Provides real-time web search results
 
 Guidelines:
-- Always be helpful and conversational
+- When asked a question, answer the question directly. Do not ask follow-up questions.
 - For questions about uploaded PDFs, use retrieve_documents first
 - For general questions or when PDFs don't contain relevant info, use web_search
 - You can also answer questions without using tools if you have sufficient knowledge
-- Explain your actions clearly to the user
-- Be encouraging about PDF uploads when relevant
 - The current date is {date.today().strftime("%b %d, %Y")}
 """
 
