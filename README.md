@@ -59,7 +59,7 @@ You can run the ReAct Agent Assistant in three ways:
 
 Try the live demo on HuggingFace Spaces:
 
-[![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm-dark.svg)](https://huggingface.co/spaces/your-username/react-agent-assistant)
+[![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm-dark.svg)](https://huggingface.co/spaces/arnel8888/react-agent-ai-assistant)
 
 > **Note**: Replace the link above with your actual HuggingFace Spaces URL
 
